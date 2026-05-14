@@ -1,16 +1,26 @@
 <Project Sdk="Microsoft.NET.Sdk">
+
   <PropertyGroup>
+    <AssemblyName>sortxml</AssemblyName>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyTitle>sortxml</AssemblyTitle>
+    <Authors>thewizard@wasatchwizard.com</Authors>
+    <Company></Company>
+    <Copyright>Copyright (c) 2014-2026 Kody Brown. All rights reserved.</Copyright>
+    <Description>Simple utility that sorts (and prettifies) xml files.</Description>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net6.0</TargetFramework>
     <PackageId>sortxml</PackageId>
     <Product>Bricksoft.PowerTools</Product>
-    <AssemblyName>sortxml</AssemblyName>
-    <AssemblyTitle>sortxml</AssemblyTitle>
-    <Version>2.1.2206.2110</Version>
-    <Description>Simple utility that sorts (and prettifies) xml files.</Description>
-    <Company></Company>
-    <Authors>thewizard@wasatchwizard.com</Authors>
-    <Copyright>Copyright (c) 2014-2022 Kody Brown</Copyright>
+    <PublishSingleFile>true</PublishSingleFile>
+    <PublishTrimmed>true</PublishTrimmed>
     <RepositoryUrl>https://github.com/kodybrown/sortxml</RepositoryUrl>
+    <RootNamespace>sortxml</RootNamespace>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <TargetFramework>net10.0</TargetFramework>
+    <Version>2.1.2104.0211</Version>
   </PropertyGroup>
+
 </Project>
