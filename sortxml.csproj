@@ -1,26 +1,26 @@
-<Project Sdk="Microsoft.NET.Sdk">
-
-  <PropertyGroup>
-    <AssemblyName>sortxml</AssemblyName>
-    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <AssemblyTitle>sortxml</AssemblyTitle>
-    <Authors>thewizard@wasatchwizard.com</Authors>
-    <Company></Company>
-    <Copyright>Copyright (c) 2014-2026 Kody Brown. All rights reserved.</Copyright>
-    <Description>Simple utility that sorts (and prettifies) xml files.</Description>
-    <OutputType>Exe</OutputType>
-    <PackageId>sortxml</PackageId>
-    <Product>Bricksoft.PowerTools</Product>
-    <PublishSingleFile>true</PublishSingleFile>
-    <PublishTrimmed>true</PublishTrimmed>
-    <RepositoryUrl>https://github.com/kodybrown/sortxml</RepositoryUrl>
-    <RootNamespace>sortxml</RootNamespace>
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <SelfContained>true</SelfContained>
-    <TargetFramework>net10.0</TargetFramework>
-    <Version>2.1.2104.0211</Version>
-  </PropertyGroup>
-
+﻿<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<AssemblyName>sortxml</AssemblyName>
+		<AssemblyTitle>sortxml</AssemblyTitle>
+		<Authors>thewizard@wasatchwizard.com</Authors>
+		<Company></Company>
+		<Copyright>Copyright (c) 2014-2026 Kody Brown. All rights reserved.</Copyright>
+		<DefaultItemExcludes>$(DefaultItemExcludes);SortXML.Tests\**</DefaultItemExcludes>
+		<Description>Simple utility that sorts (and prettifies) xml files.</Description>
+		<EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<LangVersion>latest</LangVersion>
+		<Nullable>enable</Nullable>
+		<OutputType>Exe</OutputType>
+		<PackageId>sortxml</PackageId>
+		<Product>Bricksoft.PowerTools</Product>
+		<PublishSingleFile>true</PublishSingleFile>
+		<PublishTrimmed>false</PublishTrimmed>
+		<RepositoryUrl>https://github.com/kodybrown/sortxml</RepositoryUrl>
+		<RootNamespace>sortxml</RootNamespace>
+		<RuntimeIdentifier>win-x64</RuntimeIdentifier>
+		<SelfContained>true</SelfContained>
+		<TargetFramework>net10.0</TargetFramework>
+		<Version>3.0.2605.1419</Version>
+	</PropertyGroup>
 </Project>

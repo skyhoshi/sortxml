@@ -1,5 +1,5 @@
 ﻿/*!
-	Copyright (c) 2014-2022 Kody Brown (@kodybrown)
+	Copyright (c) 2014-2026 Kody Brown (@kodybrown)
 
 	MIT License:
 
@@ -22,450 +22,384 @@
 	DEALINGS IN THE SOFTWARE.
 */
 
+namespace sortxml;
+
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using System.Xml;
+using PowerCode;
 
-namespace sortxml
+public class Program
 {
-    class Program
-    {
-        static bool OptShowHelp = false;
-        static bool OptShowExamples = false;
-        static bool OptPause = false;
-        static bool OptDebug = false;
-        static bool OptOverwriteInFile = false;
-        static bool OptPrettify = true;
-        static bool OptSortNodes = true;
-        static StringComparison OptNodeSortCase = StringComparison.CurrentCulture; // Default to case-sensitive sorting.
-        static bool OptSortAttrs = true;
-        static StringComparison OptAttrSortCase = StringComparison.CurrentCulture;
-        static string OptPrimarySortAttr = "";
-        static string OptNewLineChars = "\\r\\n";
-        static string OptIndentChars = "\\t";
-        static bool OptNewLineOnAttrs = false;
+	public static int Main( string[] args )
+	{
+		return new Program().Run(args);
+	}
 
-        static XmlWriterSettings settings { get; set; }
+	private readonly AppOptions Opt = new();
+	private int ExitCode { get; set; }
+	private Dictionary<int, string> ErrorMessages { get; set; } = [];
 
-        static int Main( string[] arguments )
-        {
-            var inFile = "";
-            var outFile = "";
+	public Program()
+	{
+		App.AppName = "sortxml";
+		App.AppDescription = @"A command-line utility that sorts the nodes and attributes of XML files.
+Features:
+- update the input files or output to stdio.
+- accept multiple files at once or piped input.
+- prettify the output with configurable encoding, indentation, and EOL characters.
+- include or omit the XML declaration.
+- specify a primary attribute to always sort first.
+- choose to sort nodes and/or attributes.
+- specify string comparison options for sorting.
+- optionally put attributes on new lines.";
+		App.AppProduct = "PowerTools";
+		App.AppAuthors = "Kody Brown (@kodybrown)";
+		App.AppCopyright = "Copyright (c) 2014-2026 Kody Brown";
+		App.AppEnvarPrefix = "sortxml_";
+		App.AppRepositoryUrl = "https://github.com/kodybrown/sortxml";
+	}
 
-            var doc = new XmlDocument();
+	public int Run( string[] arguments )
+	{
+		var parse = App.ParseCommandLineArguments(arguments, Opt, allowEnvars: true);
+		if (parse.ShouldExit) {
+			return parse.ExitCode;
+		}
 
-            for (var i = 0; i < arguments.Length; i++) {
-                var a = arguments[i];
-                var isFlag = false;
-                var flagVal = true;
+		if (Opt.HelpWasSet || Opt.ShowExamples || Opt.ShowEnvars) {
+			if (Opt.Help is "examples" or "show-examples" || Opt.ShowExamples) {
+				ShowExamples(showHeader: true);
+			} else if (Opt.Help is "envars" or "show-envars" || Opt.ShowEnvars) {
+				App.ShowEnvars(Opt, showHeader: true);
+			} else {
+				App.ShowUsage(Opt, Opt.Help);
+			}
+			App.PauseIfNeeded(Opt.Pause);
+			return 0;
+		}
 
-                if (OptDebug) {
-                    Console.WriteLine($"argument[{i}] = [`{a}`]");
-                }
+		var doc = new XmlDocument();
+		string? stdinTempFile = null;
 
-                a = RemoveOutsideQuotes(a);
+		// If no files were specified, check for piped stdin input.
+		var fileCount = Opt.Files?.Count ?? 0;
+		if (fileCount == 0) {
+			if (App.IsInputRedirected) {
+				// The user is piping or redirecting XML input to stdin, so we'll
+				// read that input into a temporary file and process it like normal.
+				stdinTempFile = App.ReadStdInToTempFile();
+				if (stdinTempFile is null) {
+					Console.Error.WriteLine("**** No input received from stdin. ****");
+					return 1;
+				}
+				Opt.Files ??= [];
+				Opt.Files.Add(stdinTempFile);
+				if (!Opt.OutFileWasSet) {
+					Opt.RedirectToStdOut = true;
+				}
+			} else {
+				Console.WriteLine("**** Missing file. ****\n");
+				App.ShowUsage(Opt, nameof(Opt.Files));
+				return 1;
+			}
+		}
 
-                while (a[0] == '-' || a[0] == '/' || a[0] == '!') {
-                    if (a[0] == '!') {
-                        flagVal = false;
-                    }
-                    isFlag = true;
-                    a = a.Substring(1);
-                }
+		if (Opt.OutFileWasSet && Opt.Files.Count > 1) {
+			Console.WriteLine("**** Cannot specify more than one input file when using the -out-file option. ****");
+			return 99;
+		}
 
-                a = RemoveOutsideQuotes(a);
+		foreach (var fileName in Opt.Files) {
+			// Determine the output file name.
+			// If the user specified an output file, use that, otherwise overwrite the input file.
+			var outFile = Opt.OutFileWasSet
+				? Opt.OutFile
+				: fileName;
 
-                if (isFlag) {
-                    if (a == "?" || a == "help") {
-                        OptShowHelp = true;
-                    } else if (a == "example" || a == "examples") {
-                        OptShowExamples = true;
-                    } else if (a == "p" || a == "pause") {
-                        OptPause = flagVal;
-                    } else if (a == "e" || a == "debug") {
-                        OptDebug = flagVal;
+			try {
+				// If the user is prettifying the output, then we MUST NOT preserve whitespace when loading the XML,
+				// since we want to ignore the input formatting and reformat it according to the specified options.
+				// However, if the user is not prettifying the output, then we SHOULD preserve whitespace when loading the XML,
+				// since we want to maintain the input formatting as much as possible (except for sorting, of course).
+				doc.PreserveWhitespace = !Opt.Prettify;
 
-                    } else if (a == "i" || a == "case-insensitive") {
-                        OptNodeSortCase =
-                        OptAttrSortCase = flagVal
-                            ? StringComparison.CurrentCultureIgnoreCase
-                            : StringComparison.CurrentCulture;
-                    } else if (a == "node-case-insensitive") {
-                        OptNodeSortCase = flagVal
-                            ? StringComparison.CurrentCultureIgnoreCase
-                            : StringComparison.CurrentCulture;
-                    } else if (a == "attr-case-insensitive") {
-                        OptAttrSortCase = flagVal
-                            ? StringComparison.CurrentCultureIgnoreCase
-                            : StringComparison.CurrentCulture;
-                    } else if (a == "t" || a == "case-sensitive") {
-                        OptNodeSortCase =
-                        OptAttrSortCase = flagVal
-                            ? StringComparison.CurrentCulture
-                            : StringComparison.CurrentCultureIgnoreCase;
-                    } else if (a == "node-case-sensitive") {
-                        OptNodeSortCase = flagVal
-                            ? StringComparison.CurrentCulture
-                            : StringComparison.CurrentCultureIgnoreCase;
-                    } else if (a == "attr-case-sensitive") {
-                        OptAttrSortCase = flagVal
-                            ? StringComparison.CurrentCulture
-                            : StringComparison.CurrentCultureIgnoreCase;
+				// Load the XML document from the input file.
+				doc.LoadXml(File.ReadAllText(fileName));
+			} catch (Exception ex) {
+				ErrorMessages.Add(10, $"Error processing file '{fileName}': {ex.Message}");
+				continue;
+			}
 
-                    } else if (a == "s" || a == "sort" || a == "sort-all") {
-                        OptSortNodes =
-                        OptSortAttrs = flagVal;
-                    } else if (a == "sort-node" || a == "sort-nodes") {
-                        OptSortNodes = flagVal;
-                    } else if (a == "sort-attr" || a == "sort-attrs") {
-                        OptSortAttrs = flagVal;
+			if (doc is null || doc.DocumentElement is null) {
+				ErrorMessages.Add(11, $"Error processing file '{fileName}': No root element found. No changes were made to this file.");
+				continue;
+			}
 
-                    } else if (a == "pretty") {
-                        OptPrettify = flagVal;
-                    } else if (a == "overwrite") {
-                        OptOverwriteInFile = flagVal;
+			// If the user didn't explicitly specify whether to include or omit the XML declaration,
+			// then we'll preserve what input file does.
+			if (!Opt.IncludeXmlDeclarationWasSet) {
+				Opt.IncludeXmlDeclaration = doc.OuterXml.StartsWith("<?xml");
+			}
 
-                    } else if (a.StartsWith("primary-attr=")) {
-                        OptPrimarySortAttr = a.Substring("primary-attr=".Length).Trim();
-                        OptPrimarySortAttr = RemoveOutsideQuotes(OptPrimarySortAttr);
+			//
+			// SORT
+			//
+			if (Opt.SortAttributes) {
+				SortNodeAttrs(doc.DocumentElement);
+			}
+			if (Opt.SortNodes) {
+				SortNodes(doc.DocumentElement);
+			}
 
-                    } else if (a.StartsWith("new-line-chars=")) {
-                        OptNewLineChars = a.Substring("new-line-chars=".Length);
-                        OptNewLineChars = RemoveOutsideQuotes(OptNewLineChars);
-                    } else if (a.StartsWith("indent-chars=")) {
-                        OptIndentChars = a.Substring("indent-chars=".Length);
-                        OptIndentChars = RemoveOutsideQuotes(OptIndentChars);
-                    } else if (a == "new-line-on-attrs") {
-                        OptNewLineOnAttrs = flagVal;
+			//
+			// OUTPUT
+			//
+			Encoding encoding;
+			string eol, indentation;
 
-                    } else {
-                        Console.WriteLine($"**** Unknown flag: '{arguments[i]}'. ****");
-                        return 11;
-                    }
-                } else {
-                    if (OptShowHelp && (a == "example" || a == "examples")) {
-                        OptShowExamples = true;
-                    } else if (inFile.Length == 0) {
-                        inFile = a;
-                    } else if (outFile.Length == 0) {
-                        outFile = a;
-                    } else {
-                        Console.WriteLine($"**** Unknown argument: '{arguments[i]}'. ****");
-                        return 11;
-                    }
-                }
-            }
+			if (Opt.EncodingWasSet && Opt.EolWasSet && Opt.IndentationWasSet) {
+				encoding = EncodingHelper.ConvertEncoding(Opt.Encoding);
+				eol = EolHelper.ConvertEOL(Opt.Eol);
+				indentation = IndentationHelper.ConvertWhitespace(Opt.Indentation);
+			} else {
+				using var stream = File.OpenRead(fileName);
+				encoding = Opt.EncodingWasSet
+					? EncodingHelper.ConvertEncoding(Opt.Encoding)
+					: EncodingHelper.DetectEncoding(stream) ?? Encoding.UTF8;
+				eol = Opt.EolWasSet
+					? EolHelper.ConvertEOL(Opt.Eol)
+					: EolHelper.DetectEol(stream) ?? Environment.NewLine;
+				indentation = Opt.IndentationWasSet
+					? IndentationHelper.ConvertWhitespace(Opt.Indentation)
+					: IndentationHelper.DetectIndentation(stream) ?? "  ";
+			}
 
-            if (OptDebug) {
-                Console.WriteLine($"┌─{new string('─', 18 - 1)} {"DEBUG ".PadRight(23, '─')}─┐");
-                Console.WriteLine($"│ {"OptPause",-18} = {OptPause.ToString().ToLower(),-20} │");
-                Console.WriteLine($"│ {"OptDebug",-18} = {OptDebug.ToString().ToLower(),-20} │");
-                Console.WriteLine($"│ {"OptPrettify",-18} = {OptPrettify.ToString().ToLower(),-20} │");
-                Console.WriteLine($"│ {"OptOverwriteInFile",-18} = {OptOverwriteInFile.ToString().ToLower(),-20} │");
-                Console.WriteLine($"│ {"OptSortNodes",-18} = {OptSortNodes.ToString().ToLower(),-20} │");
-                Console.WriteLine($"│ {"OptNodeSortCase",-18} = {OptNodeSortCase,-20} │");
-                Console.WriteLine($"│ {"OptSortAttrs",-18} = {OptSortAttrs.ToString().ToLower(),-20} │");
-                Console.WriteLine($"│ {"OptAttrSortCase",-18} = {OptAttrSortCase,-20} │");
-                Console.WriteLine($"│ {"OptPrimarySortAttr",-18} = {$"'{OptPrimarySortAttr}'",-20} │");
-                Console.WriteLine($"│ {"OptNewLineChars",-18} = {$"'{OptNewLineChars}'",-20} │");
-                Console.WriteLine($"│ {"OptIndentChars",-18} = {$"'{OptIndentChars}'",-20} │");
-                Console.WriteLine($"│ {"OptNewLineOnAttrs",-18} = {OptNewLineOnAttrs.ToString().ToLower(),-20} │");
-                Console.WriteLine($"└─{new string('─', 41)}─┘");
-            }
+			// We need to create the xmlSettings for each file.
+			// Set up XML writer settings based on the specified options.
+			var xmlSettings = new XmlWriterSettings() {
+				CloseOutput = true,
+				Encoding = encoding,
+				Indent = Opt.Prettify, //!string.IsNullOrEmpty(indent_chars),
+				IndentChars = indentation,
+				NewLineChars = eol,
+				NewLineHandling = NewLineHandling.Replace,
+				NewLineOnAttributes = Opt.AttributesOnNewLine,
+				OmitXmlDeclaration = Opt.OmitXmlDeclaration,
+			};
 
-            if (OptShowHelp) {
-                usage(OptShowExamples);
-                return 0;
-            }
+			if (Opt.RedirectToStdOut) {
+				// Output to console.
+				if (Opt.Prettify) {
+					var xmlWriter = XmlWriter.Create(Console.Out, xmlSettings);
+					doc.Save(xmlWriter);
+				} else {
+					doc.Save(Console.Out);
+				}
+			} else {
+				// Save to file.
+				try {
+					if (Opt.Prettify) {
+						var xmlWriter = XmlWriter.Create(outFile, xmlSettings);
+						doc.Save(xmlWriter);
+					} else {
+						doc.Save(outFile);
+					}
+				} catch (Exception ex) {
+					ErrorMessages.Add(13, $"Error processing file '{fileName}': Could not save output file.\n{ex.Message}");
+					continue;
+				}
+			}
+		}
 
-            if (inFile.Length == 0) {
-                Console.WriteLine("**** Missing infile. ****\n");
-                usage();
-                return 1;
-            }
+		if (ErrorMessages.Count > 0) {
+			Console.WriteLine("**** ERRORS: ****");
+			var exitCode = 0;
+			foreach (var err in ErrorMessages) {
+				if (exitCode == 0) { exitCode = err.Key; }
+				Console.WriteLine(err.Value);
+			}
+			App.PauseIfNeeded(Opt.Pause, exitCode: 1);
+			return exitCode;
+		}
 
-            try {
-                doc.PreserveWhitespace = !OptPrettify;
-                doc.LoadXml(File.ReadAllText(inFile));
-            } catch (Exception ex) {
-                Console.WriteLine("**** Could not load input file. ****");
-                Console.WriteLine(ex.Message);
-                return 100;
-            }
+		App.PauseIfNeeded(Opt.Pause);
 
-            if (OptSortAttrs) {
-                // > I don't like defaulting a primary key -
-                //   ie: changing an expected behavior without notice/clear understanding..
-                // if (string.IsNullOrEmpty(primary_attr)) {
-                //     primary_attr = "GUID";
-                // }
-                SortNodeAttrs(doc.DocumentElement);
-            }
-            if (OptSortNodes) {
-                SortNodes(doc.DocumentElement);
-            }
+		if (stdinTempFile is not null && File.Exists(stdinTempFile)) {
+			File.Delete(stdinTempFile);
+		}
 
-            if (outFile.Length == 0 && OptOverwriteInFile) {
-                outFile = inFile;
-            }
+		return 0;
+	}
 
-            settings = new XmlWriterSettings() {
-                CloseOutput = true,
-                // Encoding = Encoding.UTF8,
-                Indent = true, //!string.IsNullOrEmpty(indent_chars),
-                IndentChars = OptIndentChars.Replace("\\r", "\r").Replace("\\n", "\n").Replace("\\t", "\t").Replace("\\s", " "),
-                NewLineChars = OptNewLineChars.Replace("\\r", "\r").Replace("\\n", "\n").Replace("\\t", "\t").Replace("\\s", " "),
-                NewLineHandling = NewLineHandling.Replace,
-                NewLineOnAttributes = OptNewLineOnAttrs
-            };
+	/// <summary>
+	/// Sorts the child nodes of the specified XML node according to a predefined comparison logic.
+	/// </summary>
+	/// <remarks>
+	/// This method recursively sorts all descendant nodes of the specified node. The sorting is applied
+	/// only if the sorting option is enabled and the node has child nodes. The order of child nodes is determined by a
+	/// custom comparison delegate (`SortDelegate`). The method modifies the structure of the XML document in place.
+	/// </remarks>
+	/// <param name="node">The XML node whose child nodes will be recursively sorted. Cannot be null.</param>
+	private void SortNodes( XmlNode node )
+	{
+		if (node is null || node.ChildNodes is null || node.ChildNodes.Count == 0) { return; }
+		if (!Opt.SortNodes) { return; }
 
-            if (outFile.Length > 0) {
-                try {
-                    if (OptPrettify) {
-                        var xmlWriter = XmlWriter.Create(outFile, settings);
-                        doc.Save(xmlWriter);
-                    } else {
-                        doc.Save(outFile);
-                    }
-                } catch (Exception ex) {
-                    Console.WriteLine("**** Could not save output file. ****");
-                    Console.WriteLine(ex.Message);
-                    return 101;
-                }
-            } else {
-                if (OptPrettify) {
-                    var xmlWriter = XmlWriter.Create(Console.Out, settings);
-                    doc.Save(xmlWriter);
-                } else {
-                    doc.Save(Console.Out);
-                }
-            }
+		var childCount = node.ChildNodes.Count;
 
-            if (OptPause) {
-                Console.Write("Press any key to quit: ");
-                Console.ReadKey(true);
-                Console.WriteLine();
-            }
+		// Go down to the furthest child and start there first!
+		// This is so we can include child nodes as a string in the current node's sort,
+		// to break matching tag names (all within SortDelegate).
+		for (var i = 0; i < childCount; i++) {
+			if (node.ChildNodes[i] is XmlNode childNode && childNode is not null) {
+				SortNodes(childNode);
+			}
+		}
 
-            return 0;
-        }
+		// Remove the node's children, sort them, then re-add them.
+		var sortedNodes = new List<XmlNode>(node.ChildNodes.Count);
+		for (var i = childCount - 1; i >= 0; i--) {
+			if (node.ChildNodes[i] is XmlNode childNode && childNode is not null) {
+				sortedNodes.Add(childNode);
+				node.RemoveChild(childNode);
+			}
+		}
+		sortedNodes.Sort(SortDelegate);
+		for (var i = 0; i < sortedNodes.Count; i++) {
+			node.AppendChild(sortedNodes[i]);
+		}
+	}
 
-        static string RemoveOutsideQuotes( string s )
-        {
-            if ((s.StartsWith('"') && s.EndsWith('"')) || (s.StartsWith('\'') && s.EndsWith('\''))) {
-                return s = s.Substring(1, s.Length - 2);
-            }
-            return s;
-        }
+	static string ConvertToXmlString( XmlNode node )
+	{
+		using var stringWriter = new StringWriter();
+		using var xmlTextWriter = new XmlTextWriter(stringWriter) {
+			Formatting = Formatting.None,
+			Indentation = 0,
+		};
+		node.WriteTo(xmlTextWriter);
+		xmlTextWriter.Flush();
+		return stringWriter.GetStringBuilder().ToString();
+	}
 
-        static void SortNodes( XmlNode node )
-        {
-            // Go down to the furthest child and start there..
-            // That is so I can include child nodes in the current node's sort,
-            // if all of it's attributes match..
-            for (int i = 0, len = node.ChildNodes.Count; i < len; i++) {
-                SortNodes(node.ChildNodes[i]);
-            }
+	private int SortDelegate( XmlNode a, XmlNode b )
+	{
+		var result = string.Compare(a.Name, b.Name, Opt.NodeStringComparison);
+		if (result == 0) {
+			if (Opt.SortChildlessNodesFirst) {
+				if (a.ChildNodes.Count == 0 ^ b.ChildNodes.Count == 0) {
+					// One of the nodes has child nodes, and the other doesn't..
+					// the one without child nodes should be sorted first.
+					return a.ChildNodes.Count == 0
+					  ? -1
+					  : 1;
+				}
+			}
 
-            // Remove, sort, then re-add the node's children.
-            if (OptSortNodes && node.ChildNodes != null && node.ChildNodes.Count > 0) {
-                var nodes = new List<XmlNode>(node.ChildNodes.Count);
+			// > We should be able to simply convert the entire node to a string and compare that,
+			//   to break ties when the tag names match, instead of going down into the attributes and child nodes separately.
+			var aNode = ConvertToXmlString(a);
+			var bNode = ConvertToXmlString(b);
+			return aNode.CompareTo(bNode, Opt.NodeStringComparison);
+		}
 
-                for (var i = node.ChildNodes.Count - 1; i >= 0; i--) {
-                    nodes.Add(node.ChildNodes[i]);
-                    node.RemoveChild(node.ChildNodes[i]);
-                }
+		return result;
+	}
 
-                nodes.Sort(SortDelegate);
+	private void SortNodeAttrs( XmlNode node )
+	{
+		// > No need to check for null node, since this is only called on a node that exists in the document.
+		// > No need to check that Opt.SortAttributes is true, since this is only called when that option is enabled.
 
-                for (var i = 0; i < nodes.Count; i++) {
-                    node.AppendChild(nodes[i]);
-                }
-            }
-        }
+		// Go down to the furthest child and start there first, to be consistent with the node sorting (see SortNodes).
+		// Sort the children's attributes.
+		if (node.ChildNodes is XmlNodeList childNodes && childNodes is not null && childNodes.Count > 0) {
+			for (var i = 0; i < childNodes.Count; i++) {
+				if (childNodes[i] is XmlNode childNode && childNode is not null) {
+					SortNodeAttrs(childNode);
+				}
+			}
+		}
 
-        static int SortDelegate( XmlNode a, XmlNode b )
-        {
-            var result = string.Compare(a.Name, b.Name, OptNodeSortCase);
+		// Remove, sort, then re-add the node's attributes.
+		if (node.Attributes is XmlAttributeCollection nodeAttrs && nodeAttrs is not null && nodeAttrs.Count > 1) {
+			var sortedAttrs = new List<XmlAttribute>(nodeAttrs.Count);
 
-            // NOTE: Always sort the _nodes_ based on its attributes (when the
-            //       name matches), but don't actually sort the node's attributes.
-            //       Sorting attributes, if specified, is done before node sorting happens..
+			for (var i = nodeAttrs.Count - 1; i >= 0; i--) {
+				sortedAttrs.Add(nodeAttrs[i]);
+				nodeAttrs.RemoveAt(i);
+			}
 
-            if (result == 0) {
-                var col1 = (a.Attributes.Count >= b.Attributes.Count) ? a.Attributes : b.Attributes;
-                var col2 = (a.Attributes.Count >= b.Attributes.Count) ? b.Attributes : a.Attributes;
+			sortedAttrs.Sort(delegate ( XmlAttribute a, XmlAttribute b )
+			{
+				var result = string.Compare(a.Name, b.Name, Opt.AttributeStringComparison);
+				if (result == 0) {
+					return string.Compare(a.Value, b.Value, Opt.AttributeStringComparison);
+				} else if (!string.IsNullOrEmpty(Opt.PrimarySortAttribute)) {
+					// If a primary_attr is specified, it is always made the first attribute!
+					if (a.Name.Equals(Opt.PrimarySortAttribute, Opt.AttributeStringComparison)) {
+						return -1;
+					} else if (b.Name.Equals(Opt.PrimarySortAttribute, Opt.AttributeStringComparison)) {
+						return 1;
+					}
+				}
+				return result;
+			});
 
-                for (var i = 0; i < col1.Count; i++) {
-                    if (i < col2.Count) {
-                        var aa = col1[i];
-                        var bb = col2[i];
-                        result = string.Compare(aa.Name, bb.Name, OptAttrSortCase);
-                        if (result == 0) {
-                            result = string.Compare(aa.Value, bb.Value, OptAttrSortCase);
-                            if (result != 0) {
-                                return result;
-                            }
-                            // Attribute name and value match.. continue loop.
-                        } else {
-                            return result;
-                        }
-                    } else {
-                        return 1;
-                    }
-                }
+			for (var i = 0; i < sortedAttrs.Count; i++) {
+				nodeAttrs.Append(sortedAttrs[i]);
+			}
+		}
+	}
 
-                // If we get here, that means that the node's attributes (and values) all match..
-                // TODO: Should we go down into the child node collections for sorting?
-                //       See example `c.xml`..
-                //Console.WriteLine(a.Name + "==" + b.Name + " all attributes matched");
-            }
+	private void ShowExamples(bool showHeader = true)
+	{
+		App.ShowHeader(includeDescription: false, includeBuildInfo: false);
 
-            return result;
-        }
+		Console.WriteLine("EXAMPLES:");
+		Console.WriteLine("---------");
 
-        static void SortNodeAttrs( XmlNode node )
-        {
-            // Remove, sort, then re-add the node's attributes.
-            if (OptSortAttrs && node.Attributes != null && node.Attributes.Count > 0) {
-                SortXmlAttributeCollection(node.Attributes);
-            }
+		Console.WriteLine(@"
+> type sample.xml
+  <?xml version=""1.0"" encoding=""utf-8"" ?><root><node2 name=""abc"" value=""two""/><node value=""one"" name=""xyz""/></root>
 
-            // Sort the children node's attributes also.
-            for (int i = 0, len = node.ChildNodes.Count; i < len; i++) {
-                SortNodeAttrs(node.ChildNodes[i]);
-            }
-        }
+> sortxml sample.xml
+  <?xml version=""1.0"" encoding=""utf-8""?>
+  <root>
+      <node name=""xyz"" value=""one"" />
+      <node2 name=""abc"" value=""two"" />
+  </root>
 
-        static void SortXmlAttributeCollection( XmlAttributeCollection col )
-        {
-            // Remove, sort, then re-add the attributes to the collection.
-            if (OptSortAttrs && col != null && col.Count > 0) {
-                var attrs = new List<XmlAttribute>(col.Count);
+> sortxml sample.xml -!pretty
+  <?xml version=""1.0"" encoding=""utf-8""?><root><node name=""xyz"" value=""one"" /><node2 name=""abc"" value=""two"" /></root>
 
-                for (var i = col.Count - 1; i >= 0; i--) {
-                    attrs.Add(col[i]);
-                    col.RemoveAt(i);
-                }
+> sortxml sample.xml -primary-attribute value
+  <?xml version=""1.0"" encoding=""utf-8""?>
+  <root>
+      <node value=""one"" name=""xyz"" />
+      <node2 value=""two"" name=""abc"" />
+  </root>
 
-                SortAttributeList(attrs);
+> sortxml sample.xml -indentation ' '
+  <?xml version=""1.0"" encoding=""utf-8""?>
+  <root>
+   <node name=""xyz"" value=""one"" />
+   <node2 name=""abc"" value=""two"" />
+  </root>
 
-                for (var i = 0; i < attrs.Count; i++) {
-                    col.Append(attrs[i]);
-                }
-            }
-        }
-
-        static void SortAttributeList( List<XmlAttribute> attrs )
-        {
-            attrs.Sort(delegate ( XmlAttribute a, XmlAttribute b ) {
-                var result = string.Compare(a.Name, b.Name, OptAttrSortCase);
-                if (result == 0) {
-                    return string.Compare(a.Value, b.Value, OptAttrSortCase);
-                } else if (!string.IsNullOrEmpty(OptPrimarySortAttr)) {
-                    // If a primary_attr is specified, it is always made the first attribute!
-                    if (a.Name.Equals(OptPrimarySortAttr, OptAttrSortCase)) {
-                        return -1;
-                    } else if (b.Name.Equals(OptPrimarySortAttr, OptAttrSortCase)) {
-                        return 1;
-                    }
-                }
-                return result;
-            });
-        }
-
-        static void usage( bool showExamples = false )
-        {
-            Console.WriteLine("sortxml - small utility that sorts (and prettifies) xml files.");
-            Console.WriteLine("Copyright (c) 2014-2022 Kody Brown (@kodybrown)");
-            Console.WriteLine("");
-            Console.WriteLine("USAGE: sortxml [options] infile [outfile]");
-            Console.WriteLine("");
-            Console.WriteLine("  infile        The name of the file to sort, etc.");
-            Console.WriteLine("  outfile       The name of the file to save the output to.");
-            Console.WriteLine("                If outfile is omitted, the output is written to stdout,");
-            Console.WriteLine("                unless `--overwrite` is specified, in which case the");
-            Console.WriteLine("                output is written back to infile, overwriting it.");
-            Console.WriteLine("");
-            Console.WriteLine("OPTIONS:");
-            Console.WriteLine("");
-            Console.WriteLine("  /? --help [-examples]  Shows this help (optionally with examples).");
-            Console.WriteLine("  /p --pause             Pauses when finished.");
-            Console.WriteLine("  /e --debug             Displays debug info and details.");
-            Console.WriteLine("");
-            Console.WriteLine("  --pretty               Ignores the input format and prettifies the output (default).");
-            Console.WriteLine("  --new-line-chars=x     Specifies the character(s) to use for each new line.");
-            Console.WriteLine("  --new-line-on-attrs    Separates each attribute onto its own line.");
-            Console.WriteLine("  --indent-chars=x       Specifies the characher(s) for the indentation.");
-            Console.WriteLine("");
-            Console.WriteLine("  /s --sort              Sort both the nodes and attributes. (default)");
-            Console.WriteLine("  --sort-node            Sort the nodes.");
-            Console.WriteLine("  --sort-attr            Sort the attributes.");
-            Console.WriteLine("                         If any sort is specified, '--pretty' is assumed.");
-            Console.WriteLine("  /i --case-insensitive  Sorts node and attributes without regard to letter case (default).");
-            Console.WriteLine("     --node-case-insensitive");
-            Console.WriteLine("     --attr-case-insensitive");
-            Console.WriteLine("  /t --case-sensitive    Sorts node and attributes case-sensitively.");
-            Console.WriteLine("     --node-case-sensitive");
-            Console.WriteLine("     --attr-case-sensitive");
-            Console.WriteLine("");
-            Console.WriteLine("  --overwrite            Writes back to the infile. Ignored if outfile is specified.");
-            Console.WriteLine("");
-            // Console.WriteLine("  --primary-node=x       This specified node will always be sorted first.");
-            Console.WriteLine("  --primary-attr=x       This specified attribute will always be sorted first.");
-            // Console.WriteLine("                         Use commas to specify multiple attribute priorities.");
-            Console.WriteLine("");
-            Console.WriteLine("  The '-' and '--' prefixes are interchangable (flags cannot be combined).");
-            Console.WriteLine("  Add a '!' after the prefix, to turn the flag off.");
-            Console.WriteLine("  This utility uses the Microsoft XML .NET namespace.");
-            Console.WriteLine("");
-
-            Console.WriteLine("  Type `sortxml --help examples` to display some examples.");
-            Console.WriteLine("");
-
-            if (showExamples) {
-                Console.WriteLine("EXAMPLES:");
-                Console.WriteLine("");
-                Console.WriteLine("> type sample.xml");
-                Console.WriteLine("  <?xml version=\"1.0\" encoding=\"utf-8\" ?><root><node value=\"one\" name=\"xyz\"/><node2 name=\"abc\" value=\"two\"/></root>");
-                Console.WriteLine("");
-                Console.WriteLine("> sortxml sample.xml");
-                Console.WriteLine("  <?xml version=\"1.0\" encoding=\"utf-8\"?>");
-                Console.WriteLine("  <root>");
-                Console.WriteLine("      <node name=\"xyz\" value=\"one\" />");
-                Console.WriteLine("      <node2 name=\"abc\" value=\"two\" />");
-                Console.WriteLine("  </root>");
-                Console.WriteLine("");
-                Console.WriteLine("> sortxml sample.xml -!pretty");
-                Console.WriteLine("  <?xml version=\"1.0\" encoding=\"utf-8\"?><root><node name=\"xyz\" value=\"one\" /><node2 name=\"abc\" value=\"two\" /></root>");
-                Console.WriteLine("");
-                Console.WriteLine("> sortxml sample.xml -primary-attr=value");
-                Console.WriteLine("  <?xml version=\"1.0\" encoding=\"utf-8\"?>");
-                Console.WriteLine("  <root>");
-                Console.WriteLine("      <node value=\"one\" name=\"xyz\" />");
-                Console.WriteLine("      <node2 value=\"two\" name=\"abc\" />");
-                Console.WriteLine("  </root>");
-                Console.WriteLine("");
-                Console.WriteLine("> sortxml sample.xml -indent-chars=' '");
-                Console.WriteLine("  <?xml version=\"1.0\" encoding=\"utf-8\"?>");
-                Console.WriteLine("  <root>");
-                Console.WriteLine("   <node name=\"xyz\" value=\"one\" />");
-                Console.WriteLine("   <node2 name=\"abc\" value=\"two\" />");
-                Console.WriteLine("  </root>");
-                Console.WriteLine("");
-                Console.WriteLine("> sortxml sample.xml -indent-chars=' ' -new-line-on-attrs");
-                Console.WriteLine("  <?xml version=\"1.0\" encoding=\"utf-8\"?>");
-                Console.WriteLine("  <root>");
-                Console.WriteLine("   <node");
-                Console.WriteLine("    name=\"xyz\"");
-                Console.WriteLine("    value=\"one\" />");
-                Console.WriteLine("   <node2");
-                Console.WriteLine("    name=\"abc\"");
-                Console.WriteLine("    value=\"two\" />");
-                Console.WriteLine("  </root>");
-                Console.WriteLine("");
-            }
-        }
-    }
+> sortxml sample.xml -indentation ' ' -attributes-on-new-line
+  <?xml version=""1.0"" encoding=""utf-8""?>
+  <root>
+   <node
+    name=""xyz""
+    value=""one"" />
+   <node2
+    name=""abc""
+    value=""two"" />
+  </root>
+");
+	}
 }
