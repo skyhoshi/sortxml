@@ -3,117 +3,60 @@
 ![dotnet-core-build](https://github.com/kodybrown/sortxml/workflows/dotnet-core-build/badge.svg)
 ![dotnet-core-release](https://github.com/kodybrown/sortxml/workflows/dotnet-core-release/badge.svg)
 
-Simple utility that sorts (and prettifies) xml files. It uses the Microsoft XML .NET namespace.
+sortxml is a command-line utility that sorts and prettifies XML files using the Microsoft XML .NET APIs.
 
-Click here for the [latest release](https://github.com/kodybrown/sortxml/releases/latest/).
+Latest release: <https://github.com/kodybrown/sortxml/releases/latest/>
 
----
+## Project Layout
 
-## Build
+- `Program.cs`: CLI entry point and XML load/sort/write flow.
+- `AppOptions.cs`: command-line options and option-derived behavior.
+- `PowerCode/`: embedded helper utilities for argument binding, output, stdin/stdout, encoding, EOL, indentation, and expansion.
+- `SortXML.Tests/`: xUnit tests and XML fixtures.
+- `Properties/PublishProfiles/`: publish profiles.
+- `docs/`: focused documentation.
 
-```powershell
-cd "{source-folder}"
-dotnet build -c Debug
+## Main Capabilities
 
-# Run it..
-dotnet run -- /?
-dotnet run -- -debug .\test_files\f.xml .\test_files\f_sorted.xml -indent-chars='\t'
-dotnet run -- -debug .\test_files\f.xml -indent-chars='\t'
+- Sort XML nodes and attributes.
+- Prettify XML output.
+- Process one or more files in place.
+- Write to stdout or a separate output file.
+- Read XML from redirected stdin.
+- Preserve or override encoding, line endings, indentation, and XML declaration behavior.
+- Configure case-sensitive or case-insensitive sorting.
+- Put a primary attribute first when sorting attributes.
 
-# Build a single binary for Windows
-cd "{source-folder}"
-dotnet publish -c Release --runtime win-x64 --framework net6.0 -p:PublishSingleFile=true -p:PublishTrimmed=true --self-contained=true
-```
+## Quick Start
 
-- Build platforms: https://docs.microsoft.com/en-us/dotnet/core/rid-catalog.
-
-## Code Format
-
-There is an .editorconfig and matching omnisharp.json file included.
-
-Installing and using the dotnet format tool.
+Show help:
 
 ```powershell
-dotnet tool install -g dotnet-format
-dotnet format sortxml.csproj
+dotnet run --project SortXML.csproj -- -help
 ```
 
-## Usage
+Sort a file in place:
 
-```text
-USAGE: sortxml [options] infile [outfile]
-
-  infile        The name of the file to sort, etc.
-  outfile       The name of the file to save the output to.
-                If outfile is omitted, the output is written to stdout,
-                unless `--overwrite` is specified, in which case the
-                output is written back to infile, overwriting it.
-
-OPTIONS:
-
-  /? --help [examples]   Shows this help (optionally with examples).
-  /p --pause             Pauses when finished.
-  /e --debug             Displays debug info and details.
-
-  --pretty               Ignores the input format and prettifies the output (default).
-  --new-line-chars=x     Specifies the character(s) to use for each new line.
-  --new-line-on-attrs    Separates each attribute onto its own line.
-  --indent-chars=x       Specifies the characher(s) for the indentation.
-
-  /s --sort              Sort both the nodes and attributes. (default)
-  --sort-node            Sort the nodes.
-  --sort-attr            Sort the attributes.
-                         If any sort is specified, '--pretty' is assumed.
-  /i --case-insensitive  Sorts node and attributes without regard to letter case (default).
-  /t --case-sensitive    Sorts node and attributes case-sensitively.
-
-  --overwrite            Writes back to the infile. Ignored if outfile is specified.
-
-  --primary-attr=x       This specified attribute will always be sorted first.
-
-  The '-' and '--' prefixes are interchangable (flags cannot be combined).
-  Add a '!' after the prefix, to turn the flag off.
-  This utility uses the Microsoft XML .NET namespace.
-
-  Type `sortxml --help examples` to display some examples.
-
-EXAMPLES:
-
-> type sample.xml
-  <?xml version="1.0" encoding="utf-8" ?><root><node value="one" name="xyz"/><node2 name="abc" value="two"/></root>
-
-> sortxml sample.xml
-  <?xml version="1.0" encoding="utf-8"?>
-  <root>
-      <node name="xyz" value="one" />
-      <node2 name="abc" value="two" />
-  </root>
-
-> sortxml sample.xml -!pretty
-  <?xml version="1.0" encoding="utf-8"?><root><node name="xyz" value="one" /><node2 name="abc" value="two" /></root>
-
-> sortxml sample.xml -primary-attr=value
-  <?xml version="1.0" encoding="utf-8"?>
-  <root>
-      <node value="one" name="xyz" />
-      <node2 value="two" name="abc" />
-  </root>
-
-> sortxml sample.xml -indent-chars=' '
-  <?xml version="1.0" encoding="utf-8"?>
-  <root>
-   <node name="xyz" value="one" />
-   <node2 name="abc" value="two" />
-  </root>
-
-> sortxml sample.xml -indent-chars=' ' -new-line-on-attrs
-  <?xml version="1.0" encoding="utf-8"?>
-  <root>
-   <node
-    name="xyz"
-    value="one" />
-   <node2
-    name="abc"
-    value="two" />
-  </root>
+```powershell
+dotnet run --project SortXML.csproj -- .\SortXML.Tests\test_files\f.xml
 ```
+
+Write sorted XML to a separate file:
+
+```powershell
+dotnet run --project SortXML.csproj -- .\SortXML.Tests\test_files\f.xml -out-file .\out.xml
+```
+
+## Core Docs
+
+- [docs/README.md](docs/README.md): focused documentation index.
+- [DEVELOPMENT.md](DEVELOPMENT.md): local setup, build, test, fixture, and publish workflow.
+- [DESIGN.md](DESIGN.md): durable CLI/XML behavior decisions.
+- [TODO.md](TODO.md): actionable backlog.
+- [AGENTS.md](AGENTS.md): AI/code-agent instructions.
+- [CODEFORMAT.md](CODEFORMAT.md): formatting and style conventions.
+- [DOCS_STRUCTURE.md](DOCS_STRUCTURE.md): documentation organization guide.
+
+## Development
+
+See [DEVELOPMENT.md](DEVELOPMENT.md).
