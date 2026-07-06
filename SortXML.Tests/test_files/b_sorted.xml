@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <UserSettings>
 	<ApplicationIdentity version="12.0" />
 	<Category name="Environment_Group" RegisteredName="Environment_Group">
@@ -12,9 +12,9 @@
 							<Item Background="0x00000001" Foreground="0x00000966" Name="VSC.TfsOutput.Error" />
 							<Item Background="0x00000001" Foreground="0x00005D66" Name="VSC.Output.Warning" />
 							<Item Background="0x00000001" Foreground="0x00005D66" Name="VSC.TfsOutput.Warning" />
-							<Item Background="0x00000001" Foreground="0x00194D19" Name="VSC.BuildOutput.BuildSummary" />
 							<Item Background="0x00000001" Foreground="0x00194D19" Name="VSC.BuildOutput.BuildSummary.Success" />
 							<Item Background="0x00000001" Foreground="0x00194D19" Name="VSC.BuildOutput.BuildSummary.Total" />
+							<Item Background="0x00000001" Foreground="0x00194D19" Name="VSC.BuildOutput.BuildSummary" />
 							<Item Background="0x00000001" Foreground="0x00194D19" Name="VSC.BuildOutput.ProjectBuildStart" />
 							<Item Background="0x00000001" Foreground="0x00194D19" Name="VSC.TfsOutput.Success" />
 							<Item Background="0x00000001" Foreground="0x005D3B09" Name="VSC.Output.Information" />
