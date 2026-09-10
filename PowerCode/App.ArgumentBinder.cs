@@ -272,6 +272,20 @@ internal static partial class App
 			}
 		}
 
+		void MarkWasSet( PropertyInfo paramProp )
+		{
+			var wasSetProp = targetType.GetProperty($"{paramProp.Name}WasSet", bindingFlags);
+			if (wasSetProp is not null && wasSetProp.CanWrite && wasSetProp.PropertyType == typeof(bool)) {
+				wasSetProp.SetValue(target, true);
+			}
+		}
+
+		void SetExplicitValue( PropertyInfo paramProp, object? value )
+		{
+			paramProp.SetValue(target, value);
+			MarkWasSet(paramProp);
+		}
+
 		void SetValue( PropertyInfo? paramProp, string arg, bool is_flag, bool flag_val, ref int i )
 		{
 			exit_code = 0;
@@ -279,7 +293,7 @@ internal static partial class App
 				// Found a matching named parameter property.
 				if (paramProp.PropertyType == typeof(bool)) {
 					// Boolean flag
-					paramProp.SetValue(target, flag_val);
+					SetExplicitValue(paramProp, flag_val);
 				} else if (paramProp.PropertyType == typeof(string)) {
 					// String parameter
 					var attr = (AppArgumentAttribute?)Attribute.GetCustomAttribute(paramProp, typeof(AppArgumentAttribute));
@@ -298,10 +312,10 @@ internal static partial class App
 								return;
 							}
 						}
-						paramProp.SetValue(target, value);
+						SetExplicitValue(paramProp, value);
 					} else if (isOptional) {
 						// Value is optional - set to empty string to indicate flag was present but no value provided
-						paramProp.SetValue(target, string.Empty);
+						SetExplicitValue(paramProp, string.Empty);
 					} else {
 						Console.WriteLine($"Missing string value for argument: {arg}");
 						exit_code = -100;
@@ -310,7 +324,7 @@ internal static partial class App
 					// Integer parameter
 					i = GetSubArgument(CommandLineArguments, i, out var found, out var value);
 					if (found && int.TryParse(value, out var intValue)) {
-						paramProp.SetValue(target, intValue);
+						SetExplicitValue(paramProp, intValue);
 					} else {
 						Console.WriteLine($"Invalid or missing integer value for argument: {arg}");
 						exit_code = -101;
@@ -326,7 +340,7 @@ internal static partial class App
 						if (ar is null) {
 							// Create a new array.
 							ar = [];
-							paramProp.SetValue(target, ar);
+							SetExplicitValue(paramProp, ar);
 						}
 
 						// Remove surrounding quotes if present.
@@ -339,7 +353,7 @@ internal static partial class App
 							// Remove the value from the array.
 							var toRemove = value[1..];
 							ar = ar.Where(x => !x.Equals(toRemove, StringComparison.InvariantCultureIgnoreCase)).ToArray();
-							paramProp.SetValue(target, ar);
+							SetExplicitValue(paramProp, ar);
 							return;
 						}
 
@@ -352,7 +366,7 @@ internal static partial class App
 						// Add value to the array.
 						Array.Resize(ref ar, ar.Length + 1);
 						ar[^1] = value!;
-						paramProp.SetValue(target, ar);
+						SetExplicitValue(paramProp, ar);
 					} else {
 						Console.WriteLine($"Missing string value for argument: {arg}");
 						exit_code = -100;
@@ -367,7 +381,7 @@ internal static partial class App
 					if (found && value != null) {
 						// Try to parse the enum value
 						if (TryParseEnum(paramProp.PropertyType, value, out var enumValue)) {
-							paramProp.SetValue(target, enumValue);
+							SetExplicitValue(paramProp, enumValue);
 						} else {
 							Console.WriteLine($"Invalid value '{value}' for argument: {arg}");
 							Console.WriteLine($"Allowed values: {FormatAllowedValues(Enum.GetNames(paramProp.PropertyType))}");
@@ -376,7 +390,7 @@ internal static partial class App
 					} else if (isOptional) {
 						// No value provided, use DefaultIfNoValue or first enum value
 						var defaultValue = attr?.DefaultIfNoValue ?? Enum.GetValues(paramProp.PropertyType).GetValue(0);
-						paramProp.SetValue(target, defaultValue);
+						SetExplicitValue(paramProp, defaultValue);
 					} else {
 						Console.WriteLine($"Missing value for argument: {arg}");
 						exit_code = -100;
@@ -384,6 +398,66 @@ internal static partial class App
 				} else {
 					Console.WriteLine($"Unsupported parameter type for argument: {arg} (must be bool, int, string, or enum)");
 					exit_code = -102;
+				}
+			}
+		}
+
+		//
+		// Apply environment variable values to any properties with the NamedParameters attribute where
+		// AllowEnvar is true. The environment variable name is derived from the first element in the
+		// NamedParameters array, prefixed with AppEnvarPrefix. This allows users to set options via
+		// environment variables as an alternative to command-line arguments, with command-line arguments
+		// taking precedence if both are provided.
+		//
+		if (AllowEnvarValues) {
+			foreach (var paramProp in namedParameters) {
+				var attr = (AppArgumentAttribute?)Attribute.GetCustomAttribute(paramProp, typeof(AppArgumentAttribute));
+				if (attr != null && attr.AllowEnvar && attr.NamedParameters.Length > 0) {
+					// Skip if this option was explicitly provided on the command line.
+					var wasOnCli = CommandLineArguments.Any(cliArg =>
+					{
+						var (parsed, isFlag, _) = ParseArgument(cliArg);
+						return isFlag && attr.NamedParameters.Any(
+							n => n.Equals(parsed, StringComparison.InvariantCultureIgnoreCase));
+					});
+					if (wasOnCli) {
+						continue;
+					}
+
+					// Use first parameter name + prefix as the environment variable name
+					var envarName = $"{AppEnvarPrefix}{attr.NamedParameters[0].Replace('-', '_')}";
+					var envVal = Environment.GetEnvironmentVariable(envarName);
+					if (!string.IsNullOrEmpty(envVal)) {
+						// We have an environment variable value for this parameter.
+						if (paramProp.PropertyType == typeof(bool)) {
+							var lower = envVal.Trim().ToLowerInvariant();
+							var boolVal = lower is "true" or "t" or "yes" or "y" or "1";
+							SetExplicitValue(paramProp, boolVal);
+						} else if (paramProp.PropertyType == typeof(int)) {
+							if (int.TryParse(envVal, out var intVal)) {
+								SetExplicitValue(paramProp, intVal);
+							} else {
+								Console.WriteLine($"Invalid integer value for environment variable {envarName}: {envVal}");
+							}
+						} else if (paramProp.PropertyType == typeof(string)) {
+							SetExplicitValue(paramProp, envVal);
+						} else if (paramProp.PropertyType == typeof(string[])) {
+							var ar = envVal.Split([';'], StringSplitOptions.RemoveEmptyEntries)
+							  .Select(s => s.Trim())
+							  .ToArray();
+							SetExplicitValue(paramProp, ar);
+						} else if (paramProp.PropertyType.IsEnum) {
+							// Try to parse the enum value from environment variable
+							if (TryParseEnum(paramProp.PropertyType, envVal, out var enumValue)) {
+								SetExplicitValue(paramProp, enumValue);
+							} else {
+								Console.WriteLine($"Invalid enum value for environment variable {envarName}: {envVal}");
+								Console.WriteLine($"Allowed values: {FormatAllowedValues(Enum.GetNames(paramProp.PropertyType))}");
+							}
+						} else {
+							throw new Exception("Unsupported parameter type for environment variable property: " + paramProp.PropertyType.Name);
+						}
+					}
 				}
 			}
 		}
@@ -445,64 +519,6 @@ internal static partial class App
 				Console.WriteLine($"Unknown argument: {arg}");
 				exit_code = -110;
 				break;
-			}
-		}
-
-		//
-		// Apply environment variable values to any properties with the NamedParameters attribute where
-		// AllowEnvar is true, but ONLY if the property was NOT explicitly set on the command line.
-		// This ensures the priority order: CLI args > envars > defaults.
-		//
-		if (AllowEnvarValues) {
-			foreach (var paramProp in namedParameters) {
-				var attr = (AppArgumentAttribute?)Attribute.GetCustomAttribute(paramProp, typeof(AppArgumentAttribute));
-				if (attr != null && attr.AllowEnvar && attr.NamedParameters.Length > 0) {
-					// Skip if this option was explicitly provided on the command line.
-					var wasOnCli = CommandLineArguments.Any(cliArg =>
-					{
-						var (parsed, isFlag, _) = ParseArgument(cliArg);
-						return isFlag && attr.NamedParameters.Any(
-							n => n.Equals(parsed, StringComparison.InvariantCultureIgnoreCase));
-					});
-					if (wasOnCli) {
-						continue;
-					}
-
-					// Use first parameter name + prefix as the environment variable name
-					var envarName = $"{AppEnvarPrefix}{attr.NamedParameters[0].Replace('-', '_')}";
-					var envVal = Environment.GetEnvironmentVariable(envarName);
-					if (!string.IsNullOrEmpty(envVal)) {
-						// We have an environment variable value for this parameter.
-						if (paramProp.PropertyType == typeof(bool)) {
-							var lower = envVal.Trim().ToLowerInvariant();
-							var boolVal = lower is "true" or "t" or "yes" or "y" or "1";
-							paramProp.SetValue(target, boolVal);
-						} else if (paramProp.PropertyType == typeof(int)) {
-							if (int.TryParse(envVal, out var intVal)) {
-								paramProp.SetValue(target, intVal);
-							} else {
-								Console.WriteLine($"Invalid integer value for environment variable {envarName}: {envVal}");
-							}
-						} else if (paramProp.PropertyType == typeof(string)) {
-							paramProp.SetValue(target, envVal);
-						} else if (paramProp.PropertyType == typeof(string[])) {
-							var ar = envVal.Split([';'], StringSplitOptions.RemoveEmptyEntries)
-							  .Select(s => s.Trim())
-							  .ToArray();
-							paramProp.SetValue(target, ar);
-						} else if (paramProp.PropertyType.IsEnum) {
-							// Try to parse the enum value from environment variable
-							if (TryParseEnum(paramProp.PropertyType, envVal, out var enumValue)) {
-								paramProp.SetValue(target, enumValue);
-							} else {
-								Console.WriteLine($"Invalid enum value for environment variable {envarName}: {envVal}");
-								Console.WriteLine($"Allowed values: {FormatAllowedValues(Enum.GetNames(paramProp.PropertyType))}");
-							}
-						} else {
-							throw new Exception("Unsupported parameter type for environment variable property: " + paramProp.PropertyType.Name);
-						}
-					}
-				}
 			}
 		}
 
@@ -1366,6 +1382,12 @@ internal static partial class App
 		  })
 		  .ToList();
 
+		if (propertiesWithEnvar.Count == 0) {
+			// No command-line arguments found that allow an environment variable, so skip this section.
+		  Console.Out.WriteLine("<none>");
+			return;
+		}
+
 		if (showHeader) {
 			ShowHeader(includeDescription: false, includeBuildInfo: false);
 		}
@@ -1384,12 +1406,6 @@ internal static partial class App
 		Console.Out.WriteLine($"{line}");
 
 		Console.Out.WriteLine();
-
-		if (propertiesWithEnvar.Count == 0) {
-			// No command-line arguments found that allow an environment variable, so skip this section.
-		  Console.Out.WriteLine("<none>");
-			return;
-		}
 
 		// Calculate optimal column width based on longest environment variable name
 		var maxEnvarNameLength = propertiesWithEnvar
@@ -1478,6 +1494,12 @@ internal class AppArgumentAttribute : Attribute
 	public bool AllowEnvar { get; }
 
 	/// <summary>
+	/// Indicates whether the value for this option is optional. If true, the option can be used
+	/// as a flag without a value (e.g. --verbose vs. --verbose true).
+	/// </summary>
+	public bool ValueIsOptional { get; }
+
+	/// <summary>
 	/// Description for this option, used in help text and error messages.
 	/// </summary>
 	public string? Description { get; }
@@ -1492,12 +1514,6 @@ internal class AppArgumentAttribute : Attribute
 	/// Value to apply when the option is NOT specified on the command line or via envar.
 	/// </summary>
 	public object? DefaultIfMissing { get; } = default;
-
-	/// <summary>
-	/// Indicates whether the value for this option is optional. If true, the option can be used
-	/// as a flag without a value (e.g. --verbose vs. --verbose true).
-	/// </summary>
-	public bool ValueIsOptional { get; }
 
 	/// <summary>
 	/// Value to apply when the option IS specified but no value is provided (for ValueIsOptional scenarios).
@@ -1550,13 +1566,13 @@ internal class AppArgumentAttribute : Attribute
 	  string? namedCommand = null,
 	  string[]? namedCommands = null,
 	  bool allowEnvar = false,
+	  bool valueIsOptional = false,
 	  string? description = null,
 	  string[]? allowedValues = null,
 	  int order = DefaultPropertyOrder,
 	  bool required = false,
 	  bool showInHelp = true,
 	  object? defaultIfMissing = default,
-	  bool valueIsOptional = false,
 	  object? defaultIfNoValue = default )
 	{
 		NamedParameters = namedParameters is not null && namedParameters.Length > 0

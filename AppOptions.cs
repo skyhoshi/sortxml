@@ -144,7 +144,7 @@ internal sealed class AppOptions
 		defaultIfMissing: false,
 		allowEnvar: true
 	)]
-	public bool AttributesOnNewLine { get; set { AttributesOnNewLineWasSet = true; field = value; } }
+	public bool AttributesOnNewLine { get; set; }
 	public bool AttributesOnNewLineWasSet { get; set; } = false;
 
 	[AppArgument(
@@ -156,13 +156,7 @@ internal sealed class AppOptions
 		defaultIfMissing: false,
 		allowEnvar: true
 	)]
-	public bool IncludeXmlDeclaration {
-		get;
-		set {
-			IncludeXmlDeclarationWasSet = true;
-			field = value;
-		}
-	}
+	public bool IncludeXmlDeclaration { get; set; }
 	public bool IncludeXmlDeclarationWasSet { get; set; } = false;
 
 	[AppArgument(
@@ -176,12 +170,9 @@ internal sealed class AppOptions
 	)]
 	public bool OmitXmlDeclaration {
 		get => !IncludeXmlDeclaration;
-		set {
-			IncludeXmlDeclarationWasSet = true;
-			IncludeXmlDeclaration = !value;
-		}
+		set => IncludeXmlDeclaration = !value;
 	}
-	public bool OmitXmlDeclarationWasSet => !IncludeXmlDeclarationWasSet;
+	public bool OmitXmlDeclarationWasSet { get; set; } = false;
 
 	// FILETYPE
 
@@ -193,7 +184,7 @@ internal sealed class AppOptions
 		defaultIfMissing: "utf8",
 		allowEnvar: true
 	)]
-	public string Encoding { get; set { EncodingWasSet = true; field = value; } } = string.Empty;
+	public string Encoding { get; set; } = string.Empty;
 	public bool EncodingWasSet { get; set; } = false;
 
 	[AppArgument(
@@ -204,7 +195,7 @@ internal sealed class AppOptions
 		defaultIfMissing: "os",
 		allowEnvar: true
 	)]
-	public string Eol { get; set { EolWasSet = true; field = value; } } = string.Empty;
+	public string Eol { get; set; } = string.Empty;
 	public bool EolWasSet { get; set; } = false;
 
 	[AppArgument(
@@ -214,7 +205,7 @@ internal sealed class AppOptions
 		defaultIfMissing: "  ",
 		allowEnvar: true
 	)]
-	public string Indentation { get; set { IndentationWasSet = true; field = value; } } = string.Empty;
+	public string Indentation { get; set; } = string.Empty;
 	public bool IndentationWasSet { get; set; } = false;
 
 	// SORT

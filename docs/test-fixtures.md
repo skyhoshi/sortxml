@@ -19,7 +19,7 @@ Tests copy input files to temporary paths before running in-place behavior so th
 
 `dotnet test` now builds the CLI project before running tests because `SortXML.Tests.csproj` references `..\SortXML.csproj`.
 
-The remaining known failures are indentation differences. Actual output currently uses two spaces where expected fixtures preserve tabs or one-space indentation. Treat this as a behavior issue to investigate before regenerating expected files.
+`dotnet test` is expected to pass. The fixtures cover both in-place output and `-out-file` output. Fixture `c` preserves its two-space source indentation; tab-indented fixtures preserve tabs.
 
 ## Expected File Policy
 

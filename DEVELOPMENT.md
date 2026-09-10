@@ -56,7 +56,7 @@ dotnet test
 
 The test project references the CLI project so `dotnet test` builds the executable before shelling out to `dotnet run --no-build`.
 
-Current known issue: tests execute but fail on indentation expectations. The app currently writes two-space indentation where several fixtures expect source indentation such as tabs or one space. See `TODO.md` and `docs/test-fixtures.md` before regenerating expected files.
+The full fixture suite is expected to pass. If a future change alters XML output, review the behavior before regenerating expected files.
 
 ## Regenerate Expected XML Fixtures
 

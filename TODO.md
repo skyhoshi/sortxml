@@ -3,10 +3,10 @@
 ## Test And Formatting Behavior
 
 - [x] Add a `ProjectReference` from `SortXML.Tests` to `SortXML.csproj` so `dotnet test` builds the CLI before shell-out tests run.
-- [ ] Fix argument-binder/default-value behavior so defaulted options do not mark `EncodingWasSet`, `EolWasSet`, `IndentationWasSet`, or XML declaration flags as explicitly supplied.
+- [x] Fix argument-binder/default-value behavior so defaulted options do not mark `EncodingWasSet`, `EolWasSet`, `IndentationWasSet`, or XML declaration flags as explicitly supplied.
 - [ ] Add focused coverage for default formatting detection versus explicit `-encoding`, `-eol`, and `-indentation` overrides.
-- [ ] Re-run `dotnet test` after the option-presence fix and decide whether any expected fixtures still need regeneration.
-- [ ] Regenerate `*_sorted.xml` fixtures only after the intended indentation behavior is documented.
+- [x] Re-run `dotnet test` after the option-presence fix and decide whether any expected fixtures still need regeneration.
+- [x] Regenerate the stale `c_sorted.xml` fixture after confirming two-space source indentation should be preserved.
 
 ## CI And Release
 

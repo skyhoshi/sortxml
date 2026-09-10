@@ -140,7 +140,7 @@ Features:
 
 			// If the user didn't explicitly specify whether to include or omit the XML declaration,
 			// then we'll preserve what input file does.
-			if (!Opt.IncludeXmlDeclarationWasSet) {
+			if (!Opt.IncludeXmlDeclarationWasSet && !Opt.OmitXmlDeclarationWasSet) {
 				Opt.IncludeXmlDeclaration = doc.OuterXml.StartsWith("<?xml");
 			}
 
